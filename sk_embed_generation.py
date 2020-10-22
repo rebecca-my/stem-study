@@ -24,15 +24,15 @@ class EmbeddingGenerator ():
 	                    else:
 	                        continue
 	                        
-	def valid_generator():    
-	    while True:
-	        for (student, term), sets in self.crs_df.groupby(['PRSN_UNIV_ID','ACAD_TERM_CD']):
-	            self.courses_set = make_set(df)
-	            for crs_1 in self.courses_set:
-	                for crs_2 in self.courses_set: 
-	                    x = self.course_to_id[crs_1]
-	                    y = self.course_to_id[crs_2]
-	                    if x!=y:
-	                        yield x,y  
-	                    else:
-	                        continue
+	# def valid_generator():    
+	#     while True:
+	#         for (student, term), sets in self.crs_df.groupby(['PRSN_UNIV_ID','ACAD_TERM_CD']):
+	#             self.courses_set = make_set(df)
+	#             for crs_1 in self.courses_set:
+	#                 for crs_2 in self.courses_set: 
+	#                     x = self.course_to_id[crs_1]
+	#                     y = self.course_to_id[crs_2]
+	#                     if x!=y:
+	#                         yield x,y  
+	#                     else:
+	#                         continue
