@@ -2,16 +2,18 @@ import pandas as pd
 import numpy as np
 
 class EmbeddingGenerator ():
-    def __init__(self, crs_folder_path, student_attr_folder_path, student_retention_folder_path, stem_majors_folder_path):
+    def __init__(self, crs_folder_path, student_attr_folder_path, student_retention_folder_path, stem_majors_folder_path, student_raw_major_folder_path):
         self.crs_folder_path = crs_folder_path
         self.student_attr_folder_path = student_attr_folder_path
         self.student_retention_folder_path = student_retention_folder_path
         self.stem_majors_folder_path = stem_majors_folder_path
+        self.student_raw_major_folder_path = student_raw_major_folder_path
 
         self._load_stem_majors()
+        self._load_raw_majors()
         self._load_student_retention()
         self._load_student_attributes()
-        self._create_attribute_retention_table()
+        self._create_attribute_retention_major_table()
         self._load_courses()
         self.embedding_id = list(self.crs_df['agg_id'].unique())
         self.course_to_id = dict([(name, i) for i, name in enumerate(self.embedding_id)])
@@ -21,8 +23,6 @@ class EmbeddingGenerator ():
         self.name_to_course = dict(self.crs_df[['CRS_NM','agg_id']].values)
         self.crs_id_to_course_name = dict(self.crs_df[['agg_id', 'CRS_NM']].values)
         self.embedding = None
-
-
 
         np.random.seed(9)
         np.random.shuffle(self.unique_students)
@@ -40,52 +40,105 @@ class EmbeddingGenerator ():
         stem_majors = pd.read_csv(self.stem_majors_folder_path)
         self.stem_major_df = pd.DataFrame(stem_majors)
 
+
     def _load_student_retention(self):
         student_retention = pd.read_csv(self.student_retention_folder_path)
-        temp_retention_df = pd.DataFrame(student_retention)
+        self.stu_retention_df = pd.DataFrame(student_retention)
+        #temp_retention_df = pd.DataFrame(student_retention)
+
+        temp_stu_retention_major = pd.merge(self.stu_raw_major_df, self.stu_retention_df.reset_index(), how = 'left',
+                                                left_on = 'PRSN_UNIV_ID', right_on = 'PRSN_UNIV_ID')
 
         def retention_helper(df):
             #display(df)
-            last_major = df[['BA_DEGREE_RECEIVED','DEGREE_MAJOR1','DEGREE_MAJOR2','DEGREE_MAJOR3']].ffill().iloc[-1]
-            first_major = df[['DEGREE_MAJOR1','DEGREE_MAJOR2','DEGREE_MAJOR3']].bfill().iloc[0].rename({'DEGREE_MAJOR1' : 'INIT_MAJOR1',
-                                                                                                        'DEGREE_MAJOR2' : 'INIT_MAJOR2',
-                                                                                                        'DEGREE_MAJOR3' : 'INIT_MAJOR3'})
+            # last_major = df[['BA_DEGREE_RECEIVED','DEGREE_MAJOR1','DEGREE_MAJOR2','DEGREE_MAJOR3']].ffill().iloc[-1]
+            # first_major = df[['DEGREE_MAJOR1','DEGREE_MAJOR2','DEGREE_MAJOR3']].bfill().iloc[0].rename({'DEGREE_MAJOR1' : 'INIT_MAJOR1',
+            #                                                                                             'DEGREE_MAJOR2' : 'INIT_MAJOR2',
+            #                                                                                             'DEGREE_MAJOR3' : 'INIT_MAJOR3'})
+            last_major = df[['BA_DEGREE_RECEIVED','MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION']].ffill().iloc[-1]
+            first_major = df[['MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION']].bfill().iloc[0].rename({'MAJOR_1_DESCRIPTION' : 'INIT_MAJOR1',
+                                                                                                    'MAJOR_2_DESCRIPTION' : 'INIT_MAJOR2'})
+                                                                                                                        
             return pd.concat([first_major, last_major])
        
-        self.stu_retention_df = temp_retention_df.groupby('PRSN_UNIV_ID').apply(retention_helper)
-        self.stu_retention_df['STEM_end'] = np.logical_or(self.stu_retention_df['DEGREE_MAJOR1'].isin(self.stem_major_df['STEM MAJORS']),
-                                                        self.stu_retention_df['DEGREE_MAJOR2'].isin(self.stem_major_df['STEM MAJORS']))
+        #self.stu_retention_df = temp_retention_df.groupby('PRSN_UNIV_ID').apply(retention_helper)
+        self.stu_retention_major_df = temp_stu_retention_major.groupby('PRSN_UNIV_ID').apply(retention_helper)
 
-        self.stu_retention_df['STEM_end'] = np.logical_or(self.stu_retention_df['STEM_end'],
-                                                        self.stu_retention_df['DEGREE_MAJOR3'].isin(self.stem_major_df['STEM MAJORS']))
+        self.stu_retention_major_df['STEM_end'] = np.logical_or(self.stu_retention_major_df['MAJOR_1_DESCRIPTION'].isin(self.stem_major_df['STEM MAJORS']),
+                                                                self.stu_retention_major_df['MAJOR_2_DESCRIPTION'].isin(self.stem_major_df['STEM MAJORS']))
 
-    def _create_attribute_retention_table(self):
-        self.stu_attribute_and_retention_df = pd.merge(self.student_attr_df, self.stu_retention_df.reset_index(), how = 'left',
-                                                    left_on = 'PRSN_UNIV_ID', right_on = 'PRSN_UNIV_ID')
-        i = self.stu_attribute_and_retention_df['ENTRY_MAJOR_DESC'] == self.stu_attribute_and_retention_df['DEGREE_MAJOR1']
-        j = self.stu_attribute_and_retention_df['ENTRY_MAJOR_DESC'] == self.stu_attribute_and_retention_df['DEGREE_MAJOR2']
-        k = self.stu_attribute_and_retention_df['ENTRY_MAJOR_DESC'] == self.stu_attribute_and_retention_df['DEGREE_MAJOR3']
+        # self.stu_retention_df['STEM_end'] = np.logical_or(self.stu_retention_df['DEGREE_MAJOR1'].isin(self.stem_major_df['STEM MAJORS']),
+        #                                                 self.stu_retention_df['DEGREE_MAJOR2'].isin(self.stem_major_df['STEM MAJORS']))
+
+        # self.stu_retention_df['STEM_end'] = np.logical_or(self.stu_retention_df['STEM_end'],
+        #                                                 self.stu_retention_df['DEGREE_MAJOR3'].isin(self.stem_major_df['STEM MAJORS']))
+
+    def _load_raw_majors(self):
+        raw_major = pd.read_csv(self.student_raw_major_folder_path)
+        self.stu_raw_major_df = pd.DataFrame(raw_major)
+
+       # def major_helper(df):
+            #display(df)
+            # last_major = df[['MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION','MAJOR_3_DESCRIPTION']].ffill().iloc[-1]
+            # first_major = df[['MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION','MAJOR_3_DESCRIPTION']].bfill().iloc[0].rename({'MAJOR_1_DESCRIPTION' : 'INIT_MAJOR1',
+            #                                                                                                             'MAJOR_2_DESCRIPTION' : 'INIT_MAJOR2',
+            #                                                                                                             'MAJOR_1_DESCRIPTION' : 'INIT_MAJOR3'})
+
+            # last_major = df[['MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION']].ffill().iloc[-1]
+            # first_major = df[['MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION']].bfill().iloc[0].rename({'MAJOR_1_DESCRIPTION' : 'INIT_MAJOR1',
+            #                                                                                         'MAJOR_2_DESCRIPTION' : 'INIT_MAJOR2'})                                                                                                               
+            # return pd.concat([first_major, last_major])
+       
+        # self.stu_raw_major_df = temp_major_df.groupby('PRSN_UNIV_ID').apply(major_helper)
+        # self.stu_raw_major_df['STEM_end'] = np.logical_or(self.stu_raw_major_df['MAJOR_1_DESCRIPTION'].isin(self.stem_major_df['STEM MAJORS']),
+        #                                                 self.stu_raw_major_df['MAJOR_2_DESCRIPTION'].isin(self.stem_major_df['STEM MAJORS']))
+
+        #self.stu_raw_major_df['STEM_end'] = np.logical_or(self.stu_raw_major_df['STEM_end'],
+        #                                                 self.stu_raw_major_df['MAJOR_3_DESCRIPTION'].isin(self.stem_major_df['STEM MAJORS']))
+
+
+    def _create_attribute_retention_major_table(self):
+        # stu_attribute_and_retention_df = pd.merge(self.student_attr_df, self.stu_retention_df.reset_index(), how = 'left',
+        #                                             left_on = 'PRSN_UNIV_ID', right_on = 'PRSN_UNIV_ID')
+
+        self.stu_attr_retention_major_df = pd.merge(self.student_attr_df, self.stu_retention_major_df.reset_index(), how='left',
+                                                    left_on='PRSN_UNIV_ID', right_on='PRSN_UNIV_ID')
+
+
+        # def attribute_retention_major_helper(df):
+        #     #display(df)
+        #     # last_major = df[['BA_DEGREE_RECEIVED','DEGREE_MAJOR1','DEGREE_MAJOR2','DEGREE_MAJOR3']].ffill().iloc[-1]
+        #     # first_major = df[['DEGREE_MAJOR1','DEGREE_MAJOR2','DEGREE_MAJOR3']].bfill().iloc[0].rename({'DEGREE_MAJOR1' : 'INIT_MAJOR1',
+        #     #                                                                                             'DEGREE_MAJOR2' : 'INIT_MAJOR2',
+        #     #                                                                                             'DEGREE_MAJOR3' : 'INIT_MAJOR3'})
+        #     last_major = df[['BA_DEGREE_RECEIVED','MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION']].ffill().iloc[-1]
+        #     first_major = df[['MAJOR_1_DESCRIPTION','MAJOR_2_DESCRIPTION']].bfill().iloc[0].rename({'MAJOR_1_DESCRIPTION' : 'INIT_MAJOR1',
+        #                                                                                             'MAJOR_2_DESCRIPTION' : 'INIT_MAJOR2'})
+                                                                                                                        
+        #     return pd.concat([first_major, last_major])
+       
+        #self.stu_retention_df = temp_retention_df.groupby('PRSN_UNIV_ID').apply(retention_helper)
+
+        
+        # self.stu_retention_major_df = temp_retention_df.groupby('PRSN_UNIV_ID').apply(retention_helper)
+
+        # self.stu_retention_major_df['STEM_end'] = np.logical_or(self.stu_retention_major_df['MAJOR_1_DESCRIPTION'].isin(self.stem_major_df['STEM MAJORS']),
+        #                                                         self.stu_retention_major_df['MAJOR_2_DESCRIPTION'].isin(self.stem_major_df['STEM MAJORS']))
+
+
+        i = self.stu_attr_retention_major_df['ENTRY_MAJOR_DESC'] == self.stu_attr_retention_major_df['MAJOR_1_DESCRIPTION']
+        j = self.stu_attr_retention_major_df['ENTRY_MAJOR_DESC'] == self.stu_attr_retention_major_df['MAJOR_2_DESCRIPTION']
+        #k = self.stu_attr_retention_major_df['ENTRY_MAJOR_DESC'] == self.stu_attr_retention_major_df['MAJOR_3_DESCRIPTION']
         ## are we using this 'MAINTAINED_MAJOR' in a useful capacity?
-        self.stu_attribute_and_retention_df['MAINTAINED_MAJOR'] = np.logical_or(i, np.logical_or(j, k))
+        self.stu_attr_retention_major_df['MAINTAINED_MAJOR'] = np.logical_or(i, j)
 
 
     def _load_student_attributes(self):
-        student_attributes = pd.read_excel(self.student_attr_folder_path)
+        student_attributes = pd.read_excel(self.student_attr_folder_path, engine='openpyxl')
         self.student_attr_df = pd.DataFrame(student_attributes)
 
         self.student_attr_df['STEM_start'] = self.student_attr_df['ENTRY_MAJOR_DESC'].isin(self.stem_major_df['STEM MAJORS'])
-        # self.student_attr_df['ETHNICITY'] = np.where(self.student_attr_df['ETHNICITY'].isnull(), 
-        #                                           'NOANSWER', self.student_attr_df['ETHNICITY'])
 
-        # ethnicity_mapping = {'Refused to Answer':'NOANSWER', 'Not Applicable':'NOANSWER', 'OTHRAMER':'Other American',
-        #             'American Indian/Alaska Native':'Native', 'Native Hawaiian/Pacific Island':'Native',
-        #             'Native Hawaiian/Oth Pac Island':'Native'}
-
-        # self.student_attr_df['ETHNICITY'] = self.student_attr_df['ETHNICITY'].replace(ethnicity_mapping)
-
-
-       # self.ethnicity_id = list(self.student_attr_df['ETHNICITY'].unique())
-       # self.ethnicity_to_id = dict([(ethnicity, i) for i, ethnicity in enumerate(self.ethnicity_id)])
         self.urm_flag_id = list(self.student_attr_df['URM_FLAG'].unique())
         self.urm_flag_to_id = dict([(urm, i) for i, urm in enumerate(self.urm_flag_id)])
         self.gender_id = list(self.student_attr_df['GENDER'].unique())
@@ -108,7 +161,6 @@ class EmbeddingGenerator ():
         
         self.crs_df = pd.DataFrame(crs_embed)
         self.crs_df['agg_id'] = self.crs_df['CRS_ID'].astype(str)
-
 
         subj_by_id = self.crs_df['agg_id'].value_counts()
         big_subj_by_id = subj_by_id[subj_by_id>10].index
@@ -208,6 +260,7 @@ class EmbeddingGenerator ():
 
                 #y = row[['ethnicity_id', 'urm_flag_id', 'gender_id', 'pell_eligibility_id']].values[0]
                 y = row[['urm_flag_id', 'gender_id', 'pell_eligibility_id']].values[0]
+                #y = row[['gender_id', 'pell_eligibility_id']].values[0]
                 x_results.append(x)
                 y_results.append(y)
         return np.vstack(x_results), np.vstack(y_results)
@@ -224,14 +277,15 @@ class EmbeddingGenerator ():
             df = df[~df['CRS_OFCL_GRD_NBR'].isna()]
             courses_set = df['embedding_index'] 
             if len(courses_set) > 1:        
-                row = self.stu_attribute_and_retention_df[self.stu_attribute_and_retention_df['PRSN_UNIV_ID']==student]        
+                row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student]        
                 #ethnicity_onehot = np.eye(len(self.ethnicity_id))[row['ethnicity_id']][0]
                 urm_onehot = np.eye(len(self.urm_flag_id))[row['urm_flag_id']][0]
                 gender_onehot = np.eye(len(self.gender_id))[row['gender_id']][0]
                 pell_eligibility = row['pell_eligibility_id']
                 
                # x = np.concatenate([ethnicity_onehot, urm_onehot, gender_onehot, pell_eligibility])   
-                x = np.concatenate([urm_onehot, gender_onehot, pell_eligibility])        
+                x = np.concatenate([urm_onehot, gender_onehot, pell_eligibility])     
+                #x = np.concatenate([gender_onehot, pell_eligibility])    
                 student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
                 if student_status[1] == 0:
                     continue
@@ -256,7 +310,7 @@ class EmbeddingGenerator ():
             courses_set = df['embedding_index']
             if len(courses_set) > 1:
                 #print(student)
-                row = self.stu_attribute_and_retention_df[self.stu_attribute_and_retention_df['PRSN_UNIV_ID']==student]
+                row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student]
                 student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
                 #print(student_status)
                 if student_status[1] == 0:
@@ -278,42 +332,42 @@ class EmbeddingGenerator ():
             data = self.crs_df_valid
         else:
             raise ValueError('Must be from valid or train data.')
-
+            
         for (student, term), df in data.groupby(['PRSN_UNIV_ID','ACAD_TERM_CD']):
             df = df[~df['CRS_OFCL_GRD_NBR'].isna()]
+            df = df[df['ACAD_UNT_TKN_NBR'] > 0]
             courses_set = df['embedding_index']
             if len(courses_set) > 1:
-                row = self.stu_attribute_and_retention_df[self.stu_attribute_and_retention_df['PRSN_UNIV_ID']==student]        
+                row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student] 
                 major = row['INIT_MAJOR1'].values[0]
                 if  major_filter is not None and major_filter != major:
                     continue
-                x = self.embedding[courses_set].mean(axis=0)
                 df['grade_points'] = df['CRS_OFCL_GRD_NBR']*df['ACAD_UNT_TKN_NBR']
+
                 ave_grade = df['grade_points'].sum()/df['ACAD_UNT_TKN_NBR'].sum()
                 var_grade = ((df['ACAD_UNT_TKN_NBR']/df['ACAD_UNT_TKN_NBR'].sum()) * 
                              np.square(df['CRS_OFCL_GRD_NBR']-ave_grade)).sum()
                 credit_hrs = df['ACAD_UNT_TKN_NBR'].sum()
-                #print(credit_hrs)
                 grade_scalars = np.array([ave_grade, var_grade, credit_hrs]).astype(float)
                 
                 df_low = df[df['CRS_OFCL_GRD_NBR'] <= ave_grade + 0.001]
-                #print(df_low.shape)
                 df_high = df[df['CRS_OFCL_GRD_NBR'] >= ave_grade - 0.001]
                 if len(df_high) == 0:
                     display(df)
                     print(df['CRS_OFCL_GRD_NBR'])
-                    print(grade_scalers)
+                    print(grade_scalars)
                 assert len(df_high) > 0
                 assert len(df_low) > 0
                 x_low = self.embedding[df_low['embedding_index']].mean(axis=0)
                 x_high = self.embedding[df_high['embedding_index']].mean(axis=0)
+                       
                 #ethnicity_onehot = np.eye(len(self.ethnicity_id))[row['ethnicity_id']][0]
                 urm_onehot = np.eye(len(self.urm_flag_id))[row['urm_flag_id']][0]
                 gender_onehot = np.eye(len(self.gender_id))[row['gender_id']][0]
                 pell_eligibility = row['pell_eligibility_id']
 
-                #x = np.concatenate([x, urm_onehot, gender_onehot, pell_eligibility])
                 x = np.concatenate([x_low, x_high, grade_scalars, urm_onehot, gender_onehot, pell_eligibility])
+                #x = np.concatenate([x_low, x_high, grade_scalars, gender_onehot, pell_eligibility])
                 student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
                 if student_status[1] == 0:
                     continue
@@ -324,7 +378,67 @@ class EmbeddingGenerator ():
                         y = 1 ## case 1 STEM non-completer
                     else:
                         y = 2 ## case 2 STEM completer
+                    
                 yield x, y
+                
+                if urm_onehot[0] == 0 and dataset == 'train': ## oversampling non-whites
+                    yield x, y
+
+###### old version
+    # def stem_generator_complex(self, dataset, major_filter=None):
+    #     if dataset == 'train':
+    #         data = self.crs_df_train
+    #     elif dataset == 'valid':
+    #         data = self.crs_df_valid
+    #     else:
+    #         raise ValueError('Must be from valid or train data.')
+
+    #     for (student, term), df in data.groupby(['PRSN_UNIV_ID','ACAD_TERM_CD']):
+    #         df = df[~df['CRS_OFCL_GRD_NBR'].isna()]
+    #         courses_set = df['embedding_index']
+    #         if len(courses_set) > 1:
+    #             row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student]        
+    #             major = row['INIT_MAJOR1'].values[0]
+    #             if  major_filter is not None and major_filter != major:
+    #                 continue
+    #             x = self.embedding[courses_set].mean(axis=0)
+    #             df['grade_points'] = df['CRS_OFCL_GRD_NBR']*df['ACAD_UNT_TKN_NBR']
+    #             ave_grade = df['grade_points'].sum()/df['ACAD_UNT_TKN_NBR'].sum()
+    #             var_grade = ((df['ACAD_UNT_TKN_NBR']/df['ACAD_UNT_TKN_NBR'].sum()) * 
+    #                          np.square(df['CRS_OFCL_GRD_NBR']-ave_grade)).sum()
+    #             credit_hrs = df['ACAD_UNT_TKN_NBR'].sum()
+    #             #print(credit_hrs)
+    #             grade_scalars = np.array([ave_grade, var_grade, credit_hrs]).astype(float)
+                
+    #             df_low = df[df['CRS_OFCL_GRD_NBR'] <= ave_grade + 0.001]
+    #             #print(df_low.shape)
+    #             df_high = df[df['CRS_OFCL_GRD_NBR'] >= ave_grade - 0.001]
+    #             if len(df_high) == 0:
+    #                 display(df)
+    #                 print(df['CRS_OFCL_GRD_NBR'])
+    #                 print(grade_scalers)
+    #             assert len(df_high) > 0
+    #             assert len(df_low) > 0
+    #             x_low = self.embedding[df_low['embedding_index']].mean(axis=0)
+    #             x_high = self.embedding[df_high['embedding_index']].mean(axis=0)
+    #             #ethnicity_onehot = np.eye(len(self.ethnicity_id))[row['ethnicity_id']][0]
+    #             urm_onehot = np.eye(len(self.urm_flag_id))[row['urm_flag_id']][0]
+    #             gender_onehot = np.eye(len(self.gender_id))[row['gender_id']][0]
+    #             pell_eligibility = row['pell_eligibility_id']
+
+    #             #x = np.concatenate([x, urm_onehot, gender_onehot, pell_eligibility])
+    #             x = np.concatenate([x_low, x_high, grade_scalars, urm_onehot, gender_onehot, pell_eligibility])
+    #             student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
+    #             if student_status[1] == 0:
+    #                 continue
+    #             if student_status[0] == 0:
+    #                 y = 0 ## case 0 is degree non-completer
+    #             else:
+    #                 if student_status[2] == 0:
+    #                     y = 1 ## case 1 STEM non-completer
+    #                 else:
+    #                     y = 2 ## case 2 STEM completer
+    #             yield x, y
 
 
 
