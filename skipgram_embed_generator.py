@@ -74,9 +74,12 @@ class EmbeddingGenerator ():
         ## are we using this 'MAINTAINED_MAJOR' in a useful capacity? ans: Not at the moment.
         self.stu_attr_retention_major_df['MAINTAINED_MAJOR'] = np.logical_or(i, j)
 
-
     def _load_student_attributes(self):
-        student_attributes = pd.read_excel(self.student_attr_folder_path, engine='openpyxl')
+        student_attributes_raw = pd.read_excel(self.student_attr_folder_path, engine='openpyxl')
+        discarded_cohort_terms = [4148, 4152, 4158, 4162, 4168, 4172, 4178, 4182, 4188, 4192, 4198, 4202]
+        mask_cohort_term_code = ~student_attr_raw['COHORT_TERM_CD'].isin(discarded_cohort_terms)
+        student_attributes = student_attr_raw[mask_cohort_term_code]
+
         self.student_attr_df = pd.DataFrame(student_attributes)
         self.student_attr_df['STEM_start'] = self.student_attr_df['ENTRY_MAJOR_DESC'].isin(self.stem_major_df['STEM MAJORS'])
 
@@ -92,11 +95,17 @@ class EmbeddingGenerator ():
         self.student_attr_df['pell_eligibility_id'] = self.student_attr_df['PELL_ELIGIBILITY'].map(self.pell_status_to_id)
 
     def _load_courses(self):
-        courses = pd.read_csv(self.crs_folder_path, encoding='latin', low_memory=False)
-        mask_type = courses['CRS_TYPE']=='ENRL'
+        courses_raw = pd.read_csv(self.crs_folder_path, encoding='latin', low_memory=False)
+        academic_terms = [4068., 4078., 4108., 4112., 4115., 4118., 4128., 4138., 4142., 4098., 4102., 4072., 4082., 
+            4088., 4092., 4095., 4122., 4132., 4068., 4182., 4188., 4202., 4198., 4105., 4125., 4135., 4158., 4185., 
+            4172., 4192., 4148., 4152., 4175., 4155., 4162., 4165., 4195., 3962., 3842., 3848., 4178., 3808., 4145., 
+            4075., 4015., 4025., 4085., 4060., 4080., 4070., 4050., 4090., 
+            4120., 4208., 4140., 4150., 4205., 4110., 4130., 4160., 4170.]
+        mask_term = courses_raw['ACAD_TERM_CD'].isin(academic_terms)
+        mask_type = courses_raw['CRS_TYPE']=='ENRL'
         discarded_grades = ['ZZ']
-        mask_grade = ~courses['CRS_OFCL_GRD_CD'].isin(discarded_grades)                          
-        mask = mask_grade&mask_type
+        mask_grade = ~courses_raw['CRS_OFCL_GRD_CD'].isin(discarded_grades)                          
+        mask = mask_grade&mask_type&mask_term
         crs_embed = courses[mask]
         
         self.crs_df = pd.DataFrame(crs_embed)
