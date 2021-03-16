@@ -71,16 +71,16 @@ class EmbeddingGenerator ():
         i = self.stu_attr_retention_major_df['ENTRY_MAJOR_DESC'] == self.stu_attr_retention_major_df['MAJOR_1_DESCRIPTION']
         j = self.stu_attr_retention_major_df['ENTRY_MAJOR_DESC'] == self.stu_attr_retention_major_df['MAJOR_2_DESCRIPTION']
         #k = self.stu_attr_retention_major_df['ENTRY_MAJOR_DESC'] == self.stu_attr_retention_major_df['MAJOR_3_DESCRIPTION']
-        ## are we using this 'MAINTAINED_MAJOR' in a useful capacity? ans: Not at the moment.
         self.stu_attr_retention_major_df['MAINTAINED_MAJOR'] = np.logical_or(i, j)
 
+
     def _load_student_attributes(self):
-        student_attributes_raw = pd.read_excel(self.student_attr_folder_path, engine='openpyxl')
+        student_attr_raw = pd.read_excel(self.student_attr_folder_path)
         discarded_cohort_terms = [4148, 4152, 4158, 4162, 4168, 4172, 4178, 4182, 4188, 4192, 4198, 4202]
         mask_cohort_term_code = ~student_attr_raw['COHORT_TERM_CD'].isin(discarded_cohort_terms)
         student_attributes = student_attr_raw[mask_cohort_term_code]
-
         self.student_attr_df = pd.DataFrame(student_attributes)
+
         self.student_attr_df['STEM_start'] = self.student_attr_df['ENTRY_MAJOR_DESC'].isin(self.stem_major_df['STEM MAJORS'])
 
         self.urm_flag_id = list(self.student_attr_df['URM_FLAG'].unique())
@@ -89,27 +89,22 @@ class EmbeddingGenerator ():
         self.gender_to_id = dict([(gender, i) for i, gender in enumerate(self.gender_id)])
         self.pell_eligibility_id = list(self.student_attr_df['PELL_ELIGIBILITY'].unique())
         self.pell_status_to_id = dict([(status, i) for i, status in enumerate(self.pell_eligibility_id)])
-       # self.student_attr_df['ethnicity_id'] = self.student_attr_df['ETHNICITY'].map(self.ethnicity_to_id)
+
         self.student_attr_df['urm_flag_id'] = self.student_attr_df['URM_FLAG'].map(self.urm_flag_to_id)
         self.student_attr_df['gender_id'] = self.student_attr_df['GENDER'].map(self.gender_to_id)
         self.student_attr_df['pell_eligibility_id'] = self.student_attr_df['PELL_ELIGIBILITY'].map(self.pell_status_to_id)
 
     def _load_courses(self):
-        courses_raw = pd.read_csv(self.crs_folder_path, encoding='latin', low_memory=False)
-        academic_terms = [4068., 4078., 4108., 4112., 4115., 4118., 4128., 4138., 4142., 4098., 4102., 4072., 4082., 
-            4088., 4092., 4095., 4122., 4132., 4068., 4182., 4188., 4202., 4198., 4105., 4125., 4135., 4158., 4185., 
-            4172., 4192., 4148., 4152., 4175., 4155., 4162., 4165., 4195., 3962., 3842., 3848., 4178., 3808., 4145., 
-            4075., 4015., 4025., 4085., 4060., 4080., 4070., 4050., 4090., 
-            4120., 4208., 4140., 4150., 4205., 4110., 4130., 4160., 4170.]
-        mask_term = courses_raw['ACAD_TERM_CD'].isin(academic_terms)
-        mask_type = courses_raw['CRS_TYPE']=='ENRL'
+        courses = pd.read_csv(self.crs_folder_path, encoding='latin', low_memory=False)
+        mask_type = courses['CRS_TYPE']=='ENRL'
         discarded_grades = ['ZZ']
-        mask_grade = ~courses_raw['CRS_OFCL_GRD_CD'].isin(discarded_grades)                          
-        mask = mask_grade&mask_type&mask_term
+        mask_grade = ~courses['CRS_OFCL_GRD_CD'].isin(discarded_grades)                          
+        mask = mask_grade&mask_type
         crs_embed = courses[mask]
         
         self.crs_df = pd.DataFrame(crs_embed)
         self.crs_df['agg_id'] = self.crs_df['CRS_ID'].astype(str)
+
 
         subj_by_id = self.crs_df['agg_id'].value_counts()
         big_subj_by_id = subj_by_id[subj_by_id>10].index
@@ -122,8 +117,10 @@ class EmbeddingGenerator ():
                                                 np.where(self.crs_df['CRS_SUBJ_DEPT_CD'].isin(big_dept),
                                                 self.crs_df['CRS_SUBJ_DEPT_CD'], 'other_dept'))
 
+
     def course_to_label(self, course):
         return self.crs_df[self.crs_df['agg_id']==course].iloc[0]['CRS_NM']
+
 
     def train_generator(self): 
         negative_courses = self.crs_df['agg_id'].map(self.course_to_id)
@@ -196,15 +193,16 @@ class EmbeddingGenerator ():
             if len(courses_set) > 1:
                 # calculate the vector describing courses
                 x = self.embedding[courses_set].mean(axis=0)
+
                 # gather demographic info
                 row = self.student_attr_df[self.student_attr_df['PRSN_UNIV_ID']==student]
-                #y = row[['ethnicity_id', 'urm_flag_id', 'gender_id', 'pell_eligibility_id']].values[0]
-                y = row[['urm_flag_id', 'gender_id', 'pell_eligibility_id']].values[0]
-                #y = row[['gender_id', 'pell_eligibility_id']].values[0]
-                x_results.append(x)
-                y_results.append(y)
+                if len(row) > 0:
+                    y = row[['urm_flag_id', 'gender_id', 'pell_eligibility_id']].values[0]
+                    x_results.append(x)
+                    y_results.append(y)
         return np.vstack(x_results), np.vstack(y_results)
-   
+
+    ## @socio_demo_generator predicts STEM status based off of only socio-economic information.    
     def socio_demo_generator_complex(self, dataset, major_filter=None):
         if dataset == 'train':
             data = self.crs_df_train
@@ -216,26 +214,27 @@ class EmbeddingGenerator ():
             df = df[~df['CRS_OFCL_GRD_NBR'].isna()]
             courses_set = df['embedding_index'] 
             if len(courses_set) > 1:        
-                row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student]        
-                #ethnicity_onehot = np.eye(len(self.ethnicity_id))[row['ethnicity_id']][0]
-                urm_onehot = np.eye(len(self.urm_flag_id))[row['urm_flag_id']][0]
-                gender_onehot = np.eye(len(self.gender_id))[row['gender_id']][0]
-                pell_eligibility = row['pell_eligibility_id']               
-                #x = np.concatenate([ethnicity_onehot, urm_onehot, gender_onehot, pell_eligibility])   
-                x = np.concatenate([urm_onehot, gender_onehot, pell_eligibility])     
-                #x = np.concatenate([gender_onehot, pell_eligibility])    
-                student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
-                if student_status[1] == 0:
-                    continue
-                if student_status[0] == 0:
-                    y = 0 ## case 0 is degree non-completer
-                else:
-                    if student_status[2] == 0:
-                        y = 1 ## case 1 STEM non-completer
-                    else:
-                        y = 2 ## case 2 STEM completer
-                yield x, y
+                row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student]
+                if len(row) > 0:        
+                    urm_onehot = np.eye(len(self.urm_flag_id))[row['urm_flag_id']][0]
+                    gender_onehot = np.eye(len(self.gender_id))[row['gender_id']][0]
+                    pell_eligibility = row['pell_eligibility_id']
 
+                    x = np.concatenate([urm_onehot, gender_onehot, pell_eligibility])     
+                    #x = np.concatenate([gender_onehot, pell_eligibility])    
+                    student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
+                    if student_status[1] == 0:
+                        continue
+                    if student_status[0] == 0:
+                        y = 0 ## case 0 is degree non-completer
+                    else:
+                        if student_status[2] == 0:
+                            y = 1 ## case 1 STEM non-completer
+                        else:
+                            y = 2 ## case 2 STEM completer
+                    yield x, y
+
+    ## @stem_generator_simple only includes course embedding information to make predictions on STEM retention
     def stem_generator_simple(self, dataset, major_filter=None):
         if dataset == 'train':
             data = self.crs_df_train
@@ -245,22 +244,31 @@ class EmbeddingGenerator ():
             raise ValueError('Must be from valid or train data.')
 
         for (student, term), df in data.groupby(['PRSN_UNIV_ID','ACAD_TERM_CD']):
+            df = df[~df['CRS_OFCL_GRD_NBR'].isna()]
+            df = df[df['ACAD_UNT_TKN_NBR'] > 0]
             courses_set = df['embedding_index']
             if len(courses_set) > 1:
+                #print(student)
                 row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student]
-                student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
-                if student_status[1] == 0:
-                    continue ## we continue only if student is STEM_start
-                if student_status[0] == 0:
-                    y = 0 ## case 0 is dropout
-                else:
-                    if student_status[2] == 0:
-                        y = 1 ## case 1 transitioned out of STEM
+                if len(row) > 0:
+                    major = row['INIT_MAJOR1'].values[0]
+                    if  major_filter is not None and major_filter != major:
+                        continue
+                    student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
+                    #print(student_status)
+                    if student_status[1] == 0:
+                        continue ## we continue only if student is STEM_start
+                    if student_status[0] == 0:
+                        y = 0 ## case 0 is dropout
                     else:
-                        y = 2 ## completed STEM
-                x = self.embedding[courses_set].mean(axis=0)
-                yield x, y
+                        if student_status[2] == 0:
+                            y = 1 ## case 1 transitioned out of STEM
+                        else:
+                            y = 2 ## completed STEM
+                    x = self.embedding[courses_set].mean(axis=0)
+                    yield x, y
 
+    ## @stem_generator_complex includes course embedding information, socio-demo, and course grade information to make predictions on STEM retention
     def stem_generator_complex(self, dataset, major_filter=None):
         if dataset == 'train':
             data = self.crs_df_train
@@ -274,48 +282,47 @@ class EmbeddingGenerator ():
             df = df[df['ACAD_UNT_TKN_NBR'] > 0]
             courses_set = df['embedding_index']
             if len(courses_set) > 1:
-                row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student] 
-                major = row['INIT_MAJOR1'].values[0]
-                if  major_filter is not None and major_filter != major:
-                    continue
-                df['grade_points'] = df['CRS_OFCL_GRD_NBR']*df['ACAD_UNT_TKN_NBR']
+                row = self.stu_attr_retention_major_df[self.stu_attr_retention_major_df['PRSN_UNIV_ID']==student]
+                if len(row) > 0:
+                    major = row['INIT_MAJOR1'].values[0]
+                    if  major_filter is not None and major_filter != major:
+                        continue
+                    df['grade_points'] = df['CRS_OFCL_GRD_NBR']*df['ACAD_UNT_TKN_NBR']
 
-                ave_grade = df['grade_points'].sum()/df['ACAD_UNT_TKN_NBR'].sum()
-                var_grade = ((df['ACAD_UNT_TKN_NBR']/df['ACAD_UNT_TKN_NBR'].sum()) * 
-                             np.square(df['CRS_OFCL_GRD_NBR']-ave_grade)).sum()
-                credit_hrs = df['ACAD_UNT_TKN_NBR'].sum()
-                grade_scalars = np.array([ave_grade, var_grade, credit_hrs]).astype(float)
-                
-                df_low = df[df['CRS_OFCL_GRD_NBR'] <= ave_grade + 0.001]
-                df_high = df[df['CRS_OFCL_GRD_NBR'] >= ave_grade - 0.001]
-                if len(df_high) == 0:
-                    display(df)
-                    print(df['CRS_OFCL_GRD_NBR'])
-                    print(grade_scalars)
-                assert len(df_high) > 0
-                assert len(df_low) > 0
-                x_low = self.embedding[df_low['embedding_index']].mean(axis=0)
-                x_high = self.embedding[df_high['embedding_index']].mean(axis=0)
-                       
-                #ethnicity_onehot = np.eye(len(self.ethnicity_id))[row['ethnicity_id']][0]
-                urm_onehot = np.eye(len(self.urm_flag_id))[row['urm_flag_id']][0]
-                gender_onehot = np.eye(len(self.gender_id))[row['gender_id']][0]
-                pell_eligibility = row['pell_eligibility_id']
-
-                x = np.concatenate([x_low, x_high, grade_scalars, urm_onehot, gender_onehot, pell_eligibility])
-                #x = np.concatenate([x_low, x_high, grade_scalars, gender_onehot, pell_eligibility])
-                student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
-                if student_status[1] == 0:
-                    continue
-                if student_status[0] == 0:
-                    y = 0 ## case 0 is degree non-completer
-                else:
-                    if student_status[2] == 0:
-                        y = 1 ## case 1 STEM non-completer
-                    else:
-                        y = 2 ## case 2 STEM completer
+                    ave_grade = df['grade_points'].sum()/df['ACAD_UNT_TKN_NBR'].sum()
+                    var_grade = ((df['ACAD_UNT_TKN_NBR']/df['ACAD_UNT_TKN_NBR'].sum()) * 
+                                 np.square(df['CRS_OFCL_GRD_NBR']-ave_grade)).sum()
+                    credit_hrs = df['ACAD_UNT_TKN_NBR'].sum()
+                    grade_scalars = np.array([ave_grade, var_grade, credit_hrs]).astype(float)
                     
-                yield x, y
-                
-                if urm_onehot[0] == 0 and dataset == 'train': ## oversampling non-whites
+                    df_low = df[df['CRS_OFCL_GRD_NBR'] <= ave_grade + 0.001]
+                    df_high = df[df['CRS_OFCL_GRD_NBR'] >= ave_grade - 0.001]
+                    if len(df_high) == 0:
+                        display(df)
+                        print(df['CRS_OFCL_GRD_NBR'])
+                        print(grade_scalars)
+                    assert len(df_high) > 0
+                    assert len(df_low) > 0
+                    x_low = self.embedding[df_low['embedding_index']].mean(axis=0)
+                    x_high = self.embedding[df_high['embedding_index']].mean(axis=0)
+                           
+                    urm_onehot = np.eye(len(self.urm_flag_id))[row['urm_flag_id']][0]
+                    gender_onehot = np.eye(len(self.gender_id))[row['gender_id']][0]
+                    pell_eligibility = row['pell_eligibility_id']
+
+                    x = np.concatenate([x_low, x_high, grade_scalars, urm_onehot, gender_onehot, pell_eligibility])
+                    student_status = row[['BA_DEGREE_RECEIVED', 'STEM_start', 'STEM_end']].values[0]
+                    if student_status[1] == 0:
+                        continue
+                    if student_status[0] == 0:
+                        y = 0 ## case 0 is degree non-completer
+                    else:
+                        if student_status[2] == 0:
+                            y = 1 ## case 1 STEM non-completer
+                        else:
+                            y = 2 ## case 2 STEM completer
+                        
                     yield x, y
+                
+                    if urm_onehot[0] == 0 and dataset == 'train': ## oversampling non-whites
+                        yield x, y
